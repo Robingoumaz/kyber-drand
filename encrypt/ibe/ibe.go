@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"go.dedis.ch/kyber/v3"
-	"go.dedis.ch/kyber/v3/group/mod"
 	"go.dedis.ch/kyber/v3/pairing"
 	"go.dedis.ch/kyber/v3/util/random"
 )
@@ -241,14 +240,7 @@ func h3(s pairing.Suite, sigma, msg []byte) (kyber.Scalar, error) {
 	// we hash it a first time: buffer = hash("IBE-H3" || sigma || msg)
 	buffer := h.Sum(nil)
 
-	hashable, ok := s.G1().Scalar().(*mod.Int)
-	if !ok {
-		return nil, fmt.Errorf("unable to instantiate scalar as a mod.Int")
-	}
-	canonicalBitLen := hashable.MarshalSize() * 8
-	actualBitLen := hashable.M.BitLen()
-	toMask := canonicalBitLen - actualBitLen
-
+	scalar := s.G1().Scalar()
 	for i := uint16(1); i < 65535; i++ {
 		h.Reset()
 		// We will hash iteratively: H(i || H("IBE-H3" || sigma || msg)) until we get a
@@ -258,22 +250,15 @@ func h3(s pairing.Suite, sigma, msg []byte) (kyber.Scalar, error) {
 		_, _ = h.Write(iter)
 		_, _ = h.Write(buffer)
 		hashed := h.Sum(nil)
-		// We then apply masking to our resulting bytes at the bit level
-		// but we assume that toMask is a few bits, at most 8.
-		// For instance when using BLS12-381 toMask == 1.
-		if hashable.BO == mod.BigEndian {
-			hashed[0] = hashed[0] >> toMask
-		} else {
-			hashed[len(hashed)-1] = hashed[len(hashed)-1] >> toMask
-		}
+
 		// NOTE: Here we unmarshal as a test if the buffer is within the modulo
 		// because we know unmarshal does this test. This implementation
 		// is almost generic if not for this line. TO make it truly generic
 		// we would need to add methods to create a scalar from bytes without
 		// reduction and a method to check if it is within the modulo on the
 		// Scalar interface.
-		if err := hashable.UnmarshalBinary(hashed); err == nil {
-			return hashable, nil
+		if err := scalar.UnmarshalBinary(hashed); err == nil {
+			return scalar, nil
 		}
 	}
 	// if we didn't return in the for loop then something is wrong
